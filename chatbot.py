@@ -1,29 +1,50 @@
 import torch
 import streamlit as st
 import numpy as np
-from config import RAG_K_THRESHOLD
+from config import RAG_K_THRESHOLD, LORA_PATHS
+from peft import PeftConfig, PeftModel
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 
-def load_llm(model_name: str, temperature=0.1, max_new_tokens=None):
+def load_llm(path: str, temperature=0.1, max_new_tokens=None, fine_tune=False):
     """Load a Hugging Face language model with quantization"""
-    # Quantization setup
-    quantization_config = BitsAndBytesConfig(
-        load_in_8bit=True,
-    )
+    if fine_tune:
+        path_map = LORA_PATHS[path]
+        config = PeftConfig.from_pretrained(path_map)
 
-    # Load tokenizer and model
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+        # Load base model (same as when you fine-tuned)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            config.base_model_name_or_path,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            load_in_4bit=True,
+        )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        quantization_config=quantization_config,
-        device_map="auto"
-    )
+        # Load LoRA adapter on top of base model
+        model = PeftModel.from_pretrained(base_model, path_map)
+
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(path_map)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+    else:
+        # Quantization setup
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+        )
+
+        # Load tokenizer and model
+        tokenizer = AutoTokenizer.from_pretrained(path)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        model = AutoModelForCausalLM.from_pretrained(
+            path,
+            quantization_config=quantization_config,
+            device_map="auto"
+        )
 
     # Pipeline configuration
     if max_new_tokens:
@@ -89,11 +110,12 @@ def render(document_list: list, retriever_metadata: dict, time_elapsed: float):
 
 
 class ChatBot():
-    def __init__(self, model_name: str):
+    def __init__(self, path: str, fine_tune: bool = False):
         """Initialize the chatbot with a language model"""
         self.llm = load_llm(
-            model_name=model_name,
+            path=path,
             temperature=0.1,
+            fine_tune=fine_tune
         )
 
     def generate_subquestions(self, question: str):

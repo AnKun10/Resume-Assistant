@@ -1,16 +1,15 @@
 import streamlit as st
-import numpy as np
 import time
 from streamlit_modal import Modal
 from langchain_core.messages import AIMessage, HumanMessage
 from huggingface_hub.utils import HfHubHTTPError
 from huggingface_hub import HfApi
 
-from config import METADATA_MODEL, EMBEDDING_MODEL, EMBEDDING_DIM
+from config import EMBEDDING_MODEL, EMBEDDING_DIM
 from utils import load_documents_list, extract_doc, initialize_index, set_seed
 import chatbot as chatbot_verbosity
 from chatbot import ChatBot
-from retriever import ResumeRetriever, get_document_nodes
+from retriever import ResumeRetriever
 from llama_index.core import Document
 
 set_seed(42)
@@ -121,9 +120,10 @@ with st.sidebar:
         label="LLM Model",
         options=['meta-llama/Llama-3.1-8B-Instruct', 'meta-llama/Llama-3.2-3B-Instruct',
                  'meta-llama/Llama-3.2-1B-Instruct'],
-        placeholder='meta-llama/Llama-3.1-8B-Instruct',
+        placeholder='meta-llama/Llama-3.1-1B-Instruct',
         key="llm_selection",
     )
+    st.checkbox("Fine-tune Version", key="finetune")
     st.file_uploader("Upload resumes", type=["pdf"], key="uploaded_file", on_change=upload_file)
     st.button("Clear conversation", on_click=clear_message)
 
@@ -167,7 +167,10 @@ if not check_hf_api(st.session_state["api_key"]):
 if st.session_state.get("faiss_index") is not None:
     # Initialize retriever & chatbot
     retriever = st.session_state["rag_pipeline"]
-    chatbot = ChatBot(st.session_state.get("llm_selection", 'meta-llama/Llama-3.1-8B-Instruct'))
+    chatbot = ChatBot(
+        path=st.session_state["llm_selection"],
+        fine_tune=st.session_state["finetune"]
+    )
 
     # Working flow
     if user_query is not None and user_query != "":

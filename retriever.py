@@ -78,9 +78,26 @@ class ResumeRetriever(Retriever):
                 <tool_input>...</tool_input>
                 <output>...</output>
             </response>
-            For resume ID queries, use 'retrieve_applicant_id' with a list of IDs.
-            For job description queries, use 'retrieve_applicant_jd' with the job description.
-            For direct answers, use 'final_answer' with the answer in 'output'."""),
+
+            IMPORTANT INSTRUCTIONS:
+            1. For ANY query that mentions job descriptions, job requirements, job postings, or finding matching candidates for a position, ALWAYS use:
+               - <type>tool_call</type>
+               - <tool_name>retrieve_applicant_jd</tool_name>
+               - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
+            
+            2. For queries that specifically mention applicant IDs or resume IDs, use:
+               - <type>tool_call</type>
+               - <tool_name>retrieve_applicant_id</tool_name>
+               - <tool_input>[LIST OF IDS]</tool_input>
+            
+            3. For general questions that don't require resume retrieval, use:
+               - <type>final_answer</type>
+               - <tool_name>null</tool_name>
+               - <output>[YOUR ANSWER]</output>
+            
+            4. If you don't know the answer, just say that in the <output> field.
+            
+            5. NEVER respond without using this exact XML format."""),
             ("user", "{input}")
         ])
         self.metadata = {

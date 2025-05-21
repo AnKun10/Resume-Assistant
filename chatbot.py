@@ -12,13 +12,8 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 # Set verbosity for more detailed error messages
 set_verbosity_info()
 
-# Try to fix bitsandbytes compatibility issue
-os.environ["BITSANDBYTES_NOWELCOME"] = "1"
-# Force CPU offloading for bitsandbytes
-os.environ["BNB_OFFLOAD_CPU"] = "True"
 
-
-def load_llm(path: str, temperature=0.1, max_new_tokens=None, fine_tune=False):
+def load_llm(path: str, temperature=0.1, max_new_tokens=1024, fine_tune=False):
     """Load a Hugging Face language model with quantization"""
     model, tokenizer = None, None
     if fine_tune:
@@ -102,15 +97,7 @@ def load_llm(path: str, temperature=0.1, max_new_tokens=None, fine_tune=False):
         tokenizer=tokenizer,
         temperature=temperature,
         max_new_tokens=max_new_tokens,
-        do_sample=False,
-        pad_token_id=tokenizer.pad_token_id,
-        return_full_text=False
-    ) if max_new_tokens else pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        temperature=temperature,
-        do_sample=False,
+        do_sample=True,
         pad_token_id=tokenizer.pad_token_id,
         return_full_text=False
     )

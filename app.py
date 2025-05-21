@@ -34,15 +34,16 @@ if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = [AIMessage(content=WELCOME_MESSAGE)]
 
 if "embedding_model" not in st.session_state:
-    st.session_state["embedding_model"] = EMBEDDING_MODEL
-    st.session_state["embedding_dim"] = EMBEDDING_DIM
-    
     # Explicitly initialize the embedding model to avoid OpenAI default
     from llama_index.embeddings.huggingface import HuggingFaceEmbedding
     from llama_index.core import Settings
     
     embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
     Settings.embed_model = embed_model
+    
+    st.session_state["embedding_model"] = EMBEDDING_MODEL
+    st.session_state["embedding_dim"] = EMBEDDING_DIM
+    
 
 if "documents" not in st.session_state:
     try:

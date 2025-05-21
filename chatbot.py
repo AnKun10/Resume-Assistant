@@ -1,76 +1,123 @@
 import torch
 import streamlit as st
 import numpy as np
+import os
 from config import RAG_K_THRESHOLD, LORA_PATHS
 from peft import PeftConfig, PeftModel
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM, pipeline
+from transformers.utils.logging import set_verbosity_info, set_verbosity_error
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
+# Set verbosity for more detailed error messages
+set_verbosity_info()
+
+# Try to fix bitsandbytes compatibility issue
+os.environ["BITSANDBYTES_NOWELCOME"] = "1"
+# Force CPU offloading for bitsandbytes
+os.environ["BNB_OFFLOAD_CPU"] = "True"
 
 
 def load_llm(path: str, temperature=0.1, max_new_tokens=None, fine_tune=False):
     """Load a Hugging Face language model with quantization"""
+    model, tokenizer = None, None
     if fine_tune:
-        path_map = LORA_PATHS[path]
-        config = PeftConfig.from_pretrained(path_map)
+        try:
+            path_map = LORA_PATHS[path]
+            config = PeftConfig.from_pretrained(path_map)
 
-        # Load base model (same as when you fine-tuned)
-        base_model = AutoModelForCausalLM.from_pretrained(
-            config.base_model_name_or_path,
-            device_map="auto",
-            torch_dtype=torch.float16,
-            load_in_4bit=True,
-        )
+            # Configure 4-bit quantization for better compatibility
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
 
-        # Load LoRA adapter on top of base model
-        model = PeftModel.from_pretrained(base_model, path_map)
+            # Load base model with 4-bit quantization
+            base_model = AutoModelForCausalLM.from_pretrained(
+                config.base_model_name_or_path,
+                quantization_config=quantization_config,
+                device_map="auto",
+                torch_dtype=torch.float16
+            )
 
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(path_map)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+            # Load LoRA adapter on top of base model
+            model = PeftModel.from_pretrained(base_model, path_map)
+            
+            # Load tokenizer
+            tokenizer = AutoTokenizer.from_pretrained(path_map)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+        except Exception as e:
+            print(f"Error loading fine-tuned model: {e}")
+            # Try alternative loading method without quantization
+            try:
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    config.base_model_name_or_path,
+                    device_map="auto",
+                    torch_dtype=torch.float16
+                )
+                model = PeftModel.from_pretrained(base_model, path_map)
+                tokenizer = AutoTokenizer.from_pretrained(path_map)
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                print("Loaded fine-tuned model without quantization")
+            except Exception as fallback_error:
+                print(f"Fallback loading for fine-tuned model also failed: {fallback_error}")
+                raise RuntimeError(f"Failed to load fine-tuned model: {str(e)}. Fallback also failed: {str(fallback_error)}")
+
     else:
         # Quantization setup
-        quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-        )
+        try:
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
+            model = AutoModelForCausalLM.from_pretrained(
+                path,
+                quantization_config=quantization_config,
+                device_map="auto",
+                torch_dtype=torch.float16
+            )
+        except Exception as e:
+            print(f"Error loading model with quantization: {e}")
+            model = AutoModelForCausalLM.from_pretrained(
+                path,
+                device_map="auto",
+                torch_dtype=torch.float16
+            )
 
-        # Load tokenizer and model
+        # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(path)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        model = AutoModelForCausalLM.from_pretrained(
-            path,
-            quantization_config=quantization_config,
-            device_map="auto"
-        )
-
     # Pipeline configuration
-    if max_new_tokens:
-        pipe = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            temperature=temperature,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            pad_token_id=tokenizer.pad_token_id,
-            return_full_text=False
-        )
-    else:
-        pipe = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            temperature=temperature,
-            do_sample=False,
-            pad_token_id=tokenizer.pad_token_id,
-            return_full_text=False
-        )
+    pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        temperature=temperature,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        pad_token_id=tokenizer.pad_token_id,
+        return_full_text=False
+    ) if max_new_tokens else pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        temperature=temperature,
+        do_sample=False,
+        pad_token_id=tokenizer.pad_token_id,
+        return_full_text=False
+    )
 
     llm = HuggingFacePipeline(pipeline=pipe)
-    llm_model = ChatHuggingFace(llm=llm)
+    # Explicitly set the model_id to ensure it's not None
+    llm_model = ChatHuggingFace(llm=llm, model_id=path)
     return llm_model
 
 

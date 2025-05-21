@@ -2,7 +2,9 @@ import os
 import pickle
 import torch
 import shutil
-from typing import List
+import gc
+import psutil
+from typing import List, Optional
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel, PeftConfig
 from langchain_community.document_loaders import PyPDFLoader
@@ -13,6 +15,8 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.indices.vector_store import VectorStoreIndex
 from llama_index.core import Settings
 import faiss
+
+from config import MEMORY_CHUNK_SIZE, MEMORY_LOGGING_INTERVAL
 
 
 def set_seed(seed: int = 42):
@@ -54,9 +58,14 @@ def load_documents_list(pkl_path: str) -> List[Document]:
 
 
 def initialize_index(docs: List[Document], model_name: str, model_dim: int) -> VectorStoreIndex:
-    """Initialize a vector index from a list of documents"""
+    """Initialize a vector index from a list of documents with memory-efficient processing"""
+    # Log initial memory usage
+    mem_info = psutil.Process(os.getpid()).memory_info()
+    print(f"Memory usage before indexing: {mem_info.rss / (1024 * 1024):.2f} MB")
+    
     # Configure LlamaIndex to use HuggingFace embedding model
     embed_model = HuggingFaceEmbedding(model_name=model_name)
+    # Explicitly set the embedding model in Settings to avoid OpenAI default
     Settings.embed_model = embed_model
 
     # Create a semantic splitter that uses embeddings for more contextual splitting
@@ -65,23 +74,57 @@ def initialize_index(docs: List[Document], model_name: str, model_dim: int) -> V
         breakpoint_percentile_threshold=95,
         embed_model=embed_model,
     )
-
-    # Process documents into semantically coherent nodes
-    all_nodes = text_splitter.get_nodes_from_documents(docs)
-    print(f"Split {len(docs)} documents into {len(all_nodes)} total nodes")
-
+    
     # Create FAISS vector store with appropriate dimensions
     faiss_index = faiss.IndexFlatL2(model_dim)
     vector_store = FaissVectorStore(faiss_index=faiss_index)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
-
-    # Create index with the nodes
+    
+    # Create empty index first
     index = VectorStoreIndex(
-        nodes=all_nodes,
+        nodes=[],
         storage_context=storage_context
     )
-
-    print(f"Created initial index with {len(all_nodes)} semantically split nodes")
+    
+    # Process documents in batches to manage memory
+    total_docs = len(docs)
+    batch_size = min(MEMORY_CHUNK_SIZE, total_docs)
+    num_batches = (total_docs + batch_size - 1) // batch_size  # Ceiling division
+    
+    total_nodes = 0
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, total_docs)
+        batch_docs = docs[start_idx:end_idx]
+        
+        print(f"Processing batch {batch_idx + 1}/{num_batches} (documents {start_idx+1}-{end_idx} of {total_docs})")
+        
+        # Process batch into nodes
+        batch_nodes = text_splitter.get_nodes_from_documents(batch_docs)
+        total_nodes += len(batch_nodes)
+        
+        # Add nodes to index
+        for node in batch_nodes:
+            index.insert(node)
+        
+        # Clear references to free memory
+        batch_docs = None
+        batch_nodes = None
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # Log memory usage
+        mem_info = psutil.Process(os.getpid()).memory_info()
+        print(f"Memory usage after batch {batch_idx + 1}: {mem_info.rss / (1024 * 1024):.2f} MB")
+    
+    print(f"Split {total_docs} documents into {total_nodes} total nodes")
+    print(f"Created index with {total_nodes} semantically split nodes")
+    
+    # Final garbage collection
+    gc.collect()
+    
     return index
 
 
@@ -117,6 +160,14 @@ def save_index(index: VectorStoreIndex, index_path: str):
 
 def load_index(index_path: str) -> VectorStoreIndex:
     """Load an index from disk"""
+    # Import the embedding model from config
+    from config import EMBEDDING_MODEL, EMBEDDING_DIM
+    
+    # Set up the embedding model
+    embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+    Settings.embed_model = embed_model
+    
+    # Load the vector store
     faiss_vector_store = FaissVectorStore.from_persist_dir(index_path)
     storage_context = StorageContext.from_defaults(
         vector_store=faiss_vector_store,

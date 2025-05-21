@@ -1,7 +1,9 @@
 import os
 import json
 import logging
-from typing import List, Tuple
+import gc
+import psutil
+from typing import List, Tuple, Dict, Any
 from datetime import datetime
 from tqdm import tqdm
 from pydantic import BaseModel, Field
@@ -10,7 +12,7 @@ from langchain.prompts import PromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from llama_index.core import Document
 
-from config import DOMAINS, METADATA_MODEL
+from config import DOMAINS, METADATA_MODEL, MEMORY_CHUNK_SIZE, MEMORY_LOGGING_INTERVAL
 from utils import extract_doc
 from chatbot import load_llm
 
@@ -92,7 +94,8 @@ def get_metadata_chain(model_name: str = METADATA_MODEL):
     return metadata_chain
 
 
-def extract_metadata_content(resume_path: str, metadata_model: str) -> Tuple[List[Document], List[Document]]:
+def extract_metadata_content(resume_path: str, metadata_model: str) -> Tuple[List[Document], List[str]]:
+    """Extract metadata from resumes with memory-efficient batch processing"""
     # Chain for extracting metadata
     metadata_chain = get_metadata_chain(metadata_model)
 
@@ -106,44 +109,87 @@ def extract_metadata_content(resume_path: str, metadata_model: str) -> Tuple[Lis
     )
     logger = logging.getLogger(__name__)
 
-    # Load docs
+    # Initialize result containers
     documents = []
     unprocessed_documents = []  # contain only file names
 
+    # Get list of all resumes
     resumes = os.listdir(resume_path)
-    logger.info(f"Starting extraction for {len(resumes)} resumes")
+    total_resumes = len(resumes)
+    logger.info(f"Starting extraction for {total_resumes} resumes")
 
-    loop = tqdm(resumes, desc="Extracting Metadata", position=0, leave=False)
-    for i, resume in enumerate(loop):
-        try:
-            cur_resume_path = os.path.join(resume_path, resume)
-            logger.info(f"Processing [{i + 1}/{len(resumes)}]: {resume}")
+    # Process in batches to manage memory
+    batch_size = min(MEMORY_CHUNK_SIZE, total_resumes)
+    num_batches = (total_resumes + batch_size - 1) // batch_size  # Ceiling division
+    
+    # Log initial memory usage
+    mem_info = psutil.Process(os.getpid()).memory_info()
+    logger.info(f"Initial memory usage: {mem_info.rss / (1024 * 1024):.2f} MB")
+    
+    # Process each batch
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, total_resumes)
+        batch_resumes = resumes[start_idx:end_idx]
+        
+        logger.info(f"Processing batch {batch_idx + 1}/{num_batches} (items {start_idx+1}-{end_idx} of {total_resumes})")
+        
+        # Process each resume in the batch
+        batch_documents = []
+        loop = tqdm(enumerate(batch_resumes), desc=f"Batch {batch_idx+1}", total=len(batch_resumes), position=0, leave=False)
+        
+        for i, resume in loop:
+            global_idx = start_idx + i  # Index in the full dataset
+            try:
+                # Get resume path
+                cur_resume_path = os.path.join(resume_path, resume)
+                logger.info(f"Processing [{global_idx + 1}/{total_resumes}]: {resume}")
 
-            doc_content = extract_doc(cur_resume_path)
-            logger.info(f"Extracted content from {resume}, length: {len(doc_content)} chars")
+                # Extract document text
+                doc_content = extract_doc(cur_resume_path)
+                logger.info(f"Extracted content from {resume}, length: {len(doc_content)} chars")
 
-            # Log before invoking the potentially memory-intensive operation
-            logger.info(f"Starting metadata extraction for {resume}")
+                # Extract metadata
+                logger.info(f"Starting metadata extraction for {resume}")
+                metadata = metadata_chain.invoke({"resume": doc_content})
+                metadata["file_name"] = resume
 
-            metadata = metadata_chain.invoke({
-                "resume": doc_content,
-            })
-            metadata["file_name"] = resume
+                # Create document and add to batch
+                logger.info(f"Successfully extracted metadata for {resume}")
+                batch_documents.append(Document(text=doc_content, metadata=metadata))
 
-            logger.info(f"Successfully extracted metadata for {resume}")
-            documents.append(Document(text=doc_content, metadata=metadata))
+                # Free memory for the document content
+                doc_content = None
+                
+                # Log memory usage periodically
+                if (i + 1) % MEMORY_LOGGING_INTERVAL == 0:
+                    mem_info = psutil.Process(os.getpid()).memory_info()
+                    logger.info(f"Memory usage after {global_idx + 1} documents: {mem_info.rss / (1024 * 1024):.2f} MB")
+                    # Force garbage collection
+                    gc.collect()
 
-            # Periodically log memory usage (optional)
-            if (i + 1) % 5 == 0:
-                import psutil
-                mem_info = psutil.Process(os.getpid()).memory_info()
-                logger.info(f"Memory usage after {i + 1} documents: {mem_info.rss / (1024 * 1024):.2f} MB")
+            except Exception as e:
+                unprocessed_documents.append(resume)
+                logger.error(f"Error processing {resume}: {str(e)}")
+                # Continue with the next file rather than crashing
+                continue
+        
+        # Add batch documents to the main list
+        documents.extend(batch_documents)
+        
+        # Clear batch data and force garbage collection
+        batch_documents = None
+        gc.collect()
+        
+        # Log memory after batch
+        mem_info = psutil.Process(os.getpid()).memory_info()
+        logger.info(f"Memory usage after batch {batch_idx + 1}: {mem_info.rss / (1024 * 1024):.2f} MB")
 
-        except Exception as e:
-            unprocessed_documents.append(resume)
-            logger.error(f"Error processing {resume}: {str(e)}")
-            # Continue with the next file rather than crashing
-            continue
-
-    logger.info(f"Completed processing {len(documents)} out of {len(resumes)} resumes")
+    # Log completion
+    logger.info(f"Completed processing {len(documents)} out of {total_resumes} resumes")
+    logger.info(f"Failed to process {len(unprocessed_documents)} resumes")
+    
+    # Final garbage collection
+    gc.collect()
+    
     return documents, unprocessed_documents

@@ -1,11 +1,11 @@
 import torch
 import streamlit as st
 import numpy as np
-import os
+from typing import List
 from config import RAG_K_THRESHOLD, LORA_PATHS
 from peft import PeftConfig, PeftModel
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM, pipeline
-from transformers.utils.logging import set_verbosity_info, set_verbosity_error
+from transformers.utils.logging import set_verbosity_info
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 

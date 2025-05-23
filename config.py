@@ -14,6 +14,7 @@ LORA_PATHS = {
 DOMAINS = [s.replace('.json', '') for s in os.listdir(JD_PATH)] if os.path.exists(JD_PATH) else []
 
 # Model configurations
+QUERY_CLASSIFIER_MODEL = "facebook/bart-large-mnli"
 METADATA_MODEL = 'meta-llama/Llama-3.2-1B-Instruct'
 AGENT_MODEL = 'meta-llama/Llama-3.2-1B-Instruct'
 EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'

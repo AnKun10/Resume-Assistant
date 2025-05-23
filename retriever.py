@@ -71,22 +71,49 @@ class ResumeRetriever(Retriever):
         super(ResumeRetriever, self).__init__(index)
 
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an expert in talent acquisition."),
+            ("system", """You are an expert in talent acquisition. Respond with an XML string in the following format:
+            <response>
+                <type>final_answer|tool_call</type>
+                <tool_name>retrieve_applicant_id|retrieve_applicant_jd|null</tool_name>
+                <tool_input>...</tool_input>
+                <output>...</output>
+            </response>
+
+            IMPORTANT INSTRUCTIONS:
+            1. For ANY query that mentions job descriptions, job requirements, job postings, or finding matching candidates for a position, ALWAYS use:
+               - <type>tool_call</type>
+               - <tool_name>retrieve_applicant_jd</tool_name>
+               - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
+            
+            2. For queries that specifically mention applicant IDs or resume IDs, use:
+               - <type>tool_call</type>
+               - <tool_name>retrieve_applicant_id</tool_name>
+               - <tool_input>[LIST OF IDS]</tool_input>
+            
+            3. For general questions that don't require resume retrieval, use:
+               - <type>final_answer</type>
+               - <tool_name>null</tool_name>
+               - <output>[YOUR ANSWER]</output>
+            
+            4. If you don't know the answer, just say that in the <output> field.
+            
+            5. NEVER respond without using this exact XML format."""),
             ("user", "{input}")
         ])
         self.metadata = {
-            "query_type": "no retrieve resumes",
+            "query_type": "no_retrieve",
             "extracted_input": "",
             "subqueries_list": [],
             "retrieved_docs_with_scores": []
         }
+        # Using this when llm cannot handle query classification (Implement later)
         self.query_classifier = pipeline("zero-shot-classification", model=QUERY_CLASSIFIER_MODEL)
 
     def classify_query(self, query: str, labels: List[str]):
         """Classify the query type"""
         result = self.query_classifier(query, labels)
-        return result["labels"][0]  # Return the highest probability label
-
+        return result
+    
     def retrieve_docs(self, question: str, llm):
         """Retrieve documents based on the question type"""
 
@@ -132,52 +159,43 @@ class ResumeRetriever(Retriever):
             return retrieved_resumes
 
         def router(response: str):
-            """Route the query to the appropriate retrieval function based on classification"""
             try:
-                # Parse the XML response from the LLM to extract tool name and input
-                import re
-                tool_match = re.search(r'<tool>(.*?)</tool>', response)
-                input_match = re.search(r'<tool_input>(.*?)</tool_input>', response, re.DOTALL)
-                
-                if tool_match and input_match:
-                    tool_name = tool_match.group(1).strip()
-                    tool_input = input_match.group(1).strip()
-                    
+                # Parse XML response
+                root = ET.fromstring(response.strip())
+                response_type = root.find("type").text
+                tool_name = root.find("tool_name").text
+                tool_input = root.find("tool_input").text
+                output = root.find("output").text
+
+                if response_type == "final_answer":
+                    return output or ""
+
+                if response_type == "tool_call":
                     # Update metadata
-                    self.metadata["query_type"] = "retrieve resumes"
+                    self.metadata["query_type"] = tool_name
                     self.metadata["extracted_input"] = tool_input
-                    
+
                     # Map tools
                     toolbox = {
                         "retrieve_applicant_id": retrieve_applicant_id,
                         "retrieve_applicant_jd": retrieve_applicant_jd
                     }
-                    
-                    # Execute tool if it exists in the toolbox
-                    if tool_name in toolbox:
-                        return toolbox[tool_name](tool_input), tool_name
-                    else:
-                        return [], "no retrieve resumes"
-                else:
-                    # No tool specified in the response
-                    return [], "no retrieve resumes"
-            except Exception as e:
-                print(f"Error in router: {str(e)}")
-                return [], "no retrieve resumes"
 
-        # Determine query type using the classifier
-        query_types_list = ["retrieve resumes", "no retrieve resumes"]
-        query_type = self.classify_query(question, query_types_list)
-        self.metadata["query_type"] = query_type
-        
-        # If classified as no retrieval, return empty results
-        if query_type == "no retrieve resumes":
-            return [], query_type
-        
-        # Otherwise, invoke LLM to determine which retrieval tool to use
+                    if tool_name not in toolbox:
+                        raise ValueError(f"Unknown tool: {tool_name}")
+
+                    # Execute tool
+                    return toolbox[tool_name].run(tool_input)
+
+                raise ValueError("Invalid response type")
+
+            except ET.ParseError:
+                # Treat invalid XML as final answer
+                return response
+            except Exception as e:
+                return f"Error: {str(e)}"
+
+        # Invoke LLM
         messages = self.prompt.format_messages(input=question)
         response = llm.llm.invoke(messages).content
-        
-        # Use router to process the response and execute the appropriate tool
-        results, tool_used = router(response)
-        return results, tool_used
+        return router(response)

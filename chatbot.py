@@ -1,20 +1,26 @@
 import torch
 import streamlit as st
 import numpy as np
-from typing import List
+import os
 from config import RAG_K_THRESHOLD, LORA_PATHS
 from peft import PeftConfig, PeftModel
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM, pipeline
-from transformers.utils.logging import set_verbosity_info
+from transformers.utils.logging import set_verbosity_info, set_verbosity_error
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from huggingface_hub import login
 
 # Set verbosity for more detailed error messages
 set_verbosity_info()
 
 
-def load_llm(path: str, temperature=0.1, max_new_tokens=1024, fine_tune=False):
+def load_llm(path: str, temperature=0.1, max_new_tokens=2048, fine_tune=False):
     """Load a Hugging Face language model with quantization"""
+    # Login to Hugging Face Hub with API token if available
+    if "api_key" in st.session_state and st.session_state["api_key"]:
+        login(token=st.session_state["api_key"], write_permission=False)
+        os.environ["HUGGINGFACE_TOKEN"] = st.session_state["api_key"]
+    
     model, tokenizer = None, None
     if fine_tune:
         try:
@@ -34,14 +40,16 @@ def load_llm(path: str, temperature=0.1, max_new_tokens=1024, fine_tune=False):
                 config.base_model_name_or_path,
                 quantization_config=quantization_config,
                 device_map="auto",
-                torch_dtype=torch.float16
+                torch_dtype=torch.float16,
+                token=st.session_state.get("api_key", None)
             )
 
             # Load LoRA adapter on top of base model
             model = PeftModel.from_pretrained(base_model, path_map)
+            model = model.merge_and_unload()
             
             # Load tokenizer
-            tokenizer = AutoTokenizer.from_pretrained(path_map)
+            tokenizer = AutoTokenizer.from_pretrained(path_map, token=st.session_state.get("api_key", None))
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
         except Exception as e:
@@ -51,10 +59,12 @@ def load_llm(path: str, temperature=0.1, max_new_tokens=1024, fine_tune=False):
                 base_model = AutoModelForCausalLM.from_pretrained(
                     config.base_model_name_or_path,
                     device_map="auto",
-                    torch_dtype=torch.float16
+                    torch_dtype=torch.float16,
+                    token=st.session_state.get("api_key", None)
                 )
                 model = PeftModel.from_pretrained(base_model, path_map)
-                tokenizer = AutoTokenizer.from_pretrained(path_map)
+                model = model.merge_and_unload()
+                tokenizer = AutoTokenizer.from_pretrained(path_map, token=st.session_state.get("api_key", None))
                 if tokenizer.pad_token is None:
                     tokenizer.pad_token = tokenizer.eos_token
                 print("Loaded fine-tuned model without quantization")
@@ -75,18 +85,20 @@ def load_llm(path: str, temperature=0.1, max_new_tokens=1024, fine_tune=False):
                 path,
                 quantization_config=quantization_config,
                 device_map="auto",
-                torch_dtype=torch.float16
+                torch_dtype=torch.float16,
+                token=st.session_state.get("api_key", None)
             )
         except Exception as e:
             print(f"Error loading model with quantization: {e}")
             model = AutoModelForCausalLM.from_pretrained(
                 path,
                 device_map="auto",
-                torch_dtype=torch.float16
+                torch_dtype=torch.float16,
+                token=st.session_state.get("api_key", None)
             )
 
         # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(path)
+        tokenizer = AutoTokenizer.from_pretrained(path, token=st.session_state.get("api_key", None))
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 

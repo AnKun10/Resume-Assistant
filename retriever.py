@@ -1,7 +1,7 @@
+import xml.etree.ElementTree as ET
 from typing import List
 from pydantic import BaseModel, Field
 from langchain.agents import tool
-from langchain_core.tools import Tool
 from langchain_core.prompts.chat import ChatPromptTemplate
 from transformers import pipeline
 

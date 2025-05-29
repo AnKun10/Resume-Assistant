@@ -215,7 +215,7 @@ if st.session_state["faiss_index"]:
     if user_query is not None and user_query != "":
         with st.chat_message("Human"):
             st.markdown(user_query)
-            st.session_state.chat_history.append(HumanMessage(content=user_query))
+            st.session_state["chat_history"].append(HumanMessage(content=user_query))
 
         with st.chat_message("AI"):
             start = time.time()
@@ -223,7 +223,12 @@ if st.session_state["faiss_index"]:
                 document_list = retriever.retrieve_docs(user_query, chatbot)
                 query_type = retriever.metadata["query_type"]
                 st.session_state["cur_resume_list"] = document_list
-                stream_message = chatbot.generate_message_stream(user_query, document_list, [], query_type)
+                stream_message = chatbot.generate_message_stream(
+                    question=user_query,
+                    docs=document_list,
+                    history=st.session_state["chat_history"],
+                    prompt_cls=query_type
+                )
             end = time.time()
 
             response = st.write_stream(stream_message)

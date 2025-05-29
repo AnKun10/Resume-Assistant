@@ -268,18 +268,34 @@ class ChatBot():
               Context: {context}
               Question: {question}
             """)
-        else:
+        elif prompt_cls == "retrieve_applicant_id":
             system_message = SystemMessage(content="""
-              You are an expert in talent acquisition that helps analyze resumes to assist resume screening.
-              You may use the following pieces of context and chat history to answer your question.
-              Do not mention in your response that you are provided with a chat history.
+              You are an expert in talent acquisition that helps analyze any resumes.
+              Use the following pieces of context to analyze the given resumes.
+              You should provide some detailed explanations for any questions related to those resumes.
+              If there are no questions about those resumes and the user only ask for retrival, you can just summarize the given resumes.
+              Because there can be applicants with similar names, use the applicant ID to refer to resumes in your response.
               If you don't know the answer, just say that you don't know, do not try to make up an answer.
             """)
 
             user_message = HumanMessage(content=f"""
               Chat history: {history}
-              Question: {question}
               Context: {context}
+              Question: {question}
+            """)
+        else:
+            system_message = SystemMessage(content="""
+              You are an expert in talent acquisition that can answer any job-related concepts, requirements or questions.
+              You may use the following pieces of context to answer your question.
+              You can only use chat history if the question mention about information in the chat history.
+              In that case, do not mention in your response that you are provided with a chat history.
+              If you don't know the answer, just say that you don't know, do not try to make up an answer.
+            """)
+
+            user_message = HumanMessage(content=f"""
+              Chat history: {history}
+              Context: {context}
+              Question: {question}
             """)
 
         stream = self.llm.stream([system_message, user_message])

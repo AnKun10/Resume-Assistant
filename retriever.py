@@ -80,7 +80,7 @@ class ResumeRetriever(Retriever):
             </response>
 
             IMPORTANT INSTRUCTIONS:
-            1. For ANY query that mentions job descriptions, job requirements, job postings, or finding matching candidates for a position, ALWAYS use:
+            1. For queries that ask for retrieve or find suitable resumes based on the given job descriptions, job requirements or job postings use:
                - <type>tool_call</type>
                - <tool_name>retrieve_applicant_jd</tool_name>
                - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
@@ -90,7 +90,7 @@ class ResumeRetriever(Retriever):
                - <tool_name>retrieve_applicant_id</tool_name>
                - <tool_input>[LIST OF IDS]</tool_input>
             
-            3. For general questions that don't require resume retrieval, use:
+            3. For queries that don't require retrieve resume, use:
                - <type>final_answer</type>
                - <tool_name>null</tool_name>
                - <output>[YOUR ANSWER]</output>

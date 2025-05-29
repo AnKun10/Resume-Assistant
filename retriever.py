@@ -35,7 +35,7 @@ class JobDescription(BaseModel):
     job_description: str = Field(description="Description of a job to retrieve similar resumes for")
 
 
-class Retriever():
+class Retriever:
     def __init__(self, index):
         self.index = index
 
@@ -80,39 +80,34 @@ class ResumeRetriever(Retriever):
             </response>
 
             IMPORTANT INSTRUCTIONS:
-            1. For queries that ask for retrieve or find suitable resumes based on the given job descriptions, job requirements or job postings use:
-               - <type>tool_call</type>
-               - <tool_name>retrieve_applicant_jd</tool_name>
-               - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
+            1. You should classify the query as question answering (instruction 2), retrieve by id (instruction 3) or retrieve by jd (instruction 4) before respond in XML format.
             
-            2. For queries that specifically mention applicant IDs or resume IDs, use:
-               - <type>tool_call</type>
-               - <tool_name>retrieve_applicant_id</tool_name>
-               - <tool_input>[LIST OF IDS]</tool_input>
-            
-            3. For queries that don't require retrieve resume, use:
+            2. For queries that don't require retrieve resume, use:
                - <type>final_answer</type>
                - <tool_name>null</tool_name>
                - <output>[YOUR ANSWER]</output>
             
-            4. If you don't know the answer, just say that in the <output> field.
+            3. For queries that specifically mention applicant IDs or resume IDs, use:
+               - <type>tool_call</type>
+               - <tool_name>retrieve_applicant_id</tool_name>
+               - <tool_input>[LIST OF IDS]</tool_input>
             
-            5. NEVER respond without using this exact XML format."""),
+            4. For queries that specifically ask for retrieve or find suitable resumes based on the given job descriptions, job requirements or job postings use:
+               - <type>tool_call</type>
+               - <tool_name>retrieve_applicant_jd</tool_name>
+               - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
+            
+            5. If you don't know the answer, just say that in the <output> field.
+            
+            6. NEVER respond without using this exact XML format."""),
             ("user", "{input}")
         ])
         self.metadata = {
             "query_type": "no_retrieve",
             "extracted_input": "",
             "subqueries_list": [],
-            "retrieved_docs_with_scores": []
+            "retrieved_docs_with_scores": {}
         }
-        # Using this when llm cannot handle query classification (Implement later)
-        self.query_classifier = pipeline("zero-shot-classification", model=QUERY_CLASSIFIER_MODEL)
-
-    def classify_query(self, query: str, labels: List[str]):
-        """Classify the query type"""
-        result = self.query_classifier(query, labels)
-        return result
     
     def retrieve_docs(self, question: str, llm):
         """Retrieve documents based on the question type"""
@@ -122,14 +117,14 @@ class ResumeRetriever(Retriever):
             """Retrieve resumes for applicants in the id_list"""
             retrieved_resumes = []
 
-            for id in id_list:
+            for id_element in id_list:
                 try:
-                    resume_nodes = get_document_nodes(self.index, id)
+                    resume_nodes = get_document_nodes(self.index, id_element)
                     file_name = resume_nodes[0].metadata["file_name"]
-                    resume_with_id = "Applicant ID: " + id + " | File Name: " + file_name + "\n" + ' '.join(
+                    resume_with_id = "Applicant ID: " + id_element + " | File Name: " + file_name + "\n" + ' '.join(
                         [node.text for node in resume_nodes])
                     retrieved_resumes.append(resume_with_id)
-                except:
+                except Exception:
                     return []
             return retrieved_resumes
 
@@ -158,10 +153,10 @@ class ResumeRetriever(Retriever):
 
             return retrieved_resumes
 
-        def router(response: str):
+        def router(res: str):
             try:
                 # Parse XML response
-                root = ET.fromstring(response.strip())
+                root = ET.fromstring(res.strip())
                 response_type = root.find("type").text
                 tool_name = root.find("tool_name").text
                 tool_input = root.find("tool_input").text
@@ -191,7 +186,7 @@ class ResumeRetriever(Retriever):
 
             except ET.ParseError:
                 # Treat invalid XML as final answer
-                return response
+                return res
             except Exception as e:
                 return f"Error: {str(e)}"
 

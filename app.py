@@ -159,7 +159,7 @@ def clear_message():
 
 # Sidebar configuration
 with st.sidebar:
-    st.markdown("# Configuration")
+    st.markdown("# Configuration ⚙️")
 
     st.text_input("Huggingface API Key", type="password", key="api_key")
     st.selectbox(

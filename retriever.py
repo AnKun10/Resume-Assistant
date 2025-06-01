@@ -80,26 +80,24 @@ class ResumeRetriever(Retriever):
             </response>
 
             IMPORTANT INSTRUCTIONS:
-            1. You should classify the query as question answering (instruction 2), retrieve by id (instruction 3) or retrieve by jd (instruction 4) before respond in XML format.
+            1. For queries that ask for retrieve or find suitable resumes based on the given job descriptions, job requirements or job postings use:
+               - <type>tool_call</type>Add commentMore actions
+               - <tool_name>retrieve_applicant_jd</tool_name>
+               - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
             
-            2. For queries that don't require retrieve resume, use:
-               - <type>final_answer</type>
-               - <tool_name>null</tool_name>
-               - <output>[YOUR ANSWER]</output>
-            
-            3. For queries that specifically mention applicant IDs or resume IDs, use:
+            2. For queries that specifically mention applicant IDs or resume IDs, use:
                - <type>tool_call</type>
                - <tool_name>retrieve_applicant_id</tool_name>
                - <tool_input>[LIST OF IDS]</tool_input>
             
-            4. For queries that specifically ask for retrieve or find suitable resumes based on the given job descriptions, job requirements or job postings use:
-               - <type>tool_call</type>
-               - <tool_name>retrieve_applicant_jd</tool_name>
-               - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
+            3. For queries that don't require retrieve resume, use:Add commentMore actions
+               - <type>final_answer</type>
+               - <tool_name>null</tool_name>
+               - <output>[YOUR ANSWER]</output>
             
-            5. If you don't know the answer, just say that in the <output> field.
+            4. If you don't know the answer, just say that in the <output> field.
             
-            6. NEVER respond without using this exact XML format."""),
+            5. NEVER respond without using this exact XML format."""),
             ("user", "{input}")
         ])
         self.metadata = {

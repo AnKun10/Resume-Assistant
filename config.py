@@ -42,12 +42,14 @@ Resume Assistant is a RAG-based tool that enables HR professionals to efficientl
 As an experimental version, the project is set up with 4-bit quantized 8B and smaller-parameter versions of LLaMA 3 Instruct as the LLMs. 
 Furthermore, we fine-tune these LLMs on a custom QA dataset and make them optional models for use. 
 The resume database is also set by default to include 2,400+ resumes from various jobs and domains.
+
 (Reference: [Resume Database](https://www.kaggle.com/datasets/snehaanbhawal/resume-dataset), [QA Dataset](https://resources.workable.com/job-descriptions)).
 
 ### Getting Started 📝
 
 1, Add your Huggingface API Key.
-2, Choose the LLM model
+
+2, Choose the LLM model.
 
 Note: We recommend using LLaMA 3.1 8B Instruct as the LLM to get the most out of our tool. In that case, a GPU with 24 GB of VRAM is required.
 """

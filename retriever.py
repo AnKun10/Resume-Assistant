@@ -81,7 +81,7 @@ class ResumeRetriever(Retriever):
 
             IMPORTANT INSTRUCTIONS:
             1. For queries that ask for retrieve or find suitable resumes based on the given job descriptions, job requirements or job postings use:
-               - <type>tool_call</type>Add commentMore actions
+               - <type>tool_call</type>
                - <tool_name>retrieve_applicant_jd</tool_name>
                - <tool_input>[FULL JOB DESCRIPTION]</tool_input>
             

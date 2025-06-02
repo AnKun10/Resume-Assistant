@@ -90,7 +90,7 @@ class ResumeRetriever(Retriever):
                - <tool_name>retrieve_applicant_id</tool_name>
                - <tool_input>[LIST OF IDS]</tool_input>
             
-            3. For queries that don't require retrieve resume, use:Add commentMore actions
+            3. For queries that don't require retrieve resume, use:
                - <type>final_answer</type>
                - <tool_name>null</tool_name>
                - <output>[YOUR ANSWER]</output>
